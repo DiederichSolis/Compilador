@@ -1,1 +1,14 @@
-##
+PY := python3
+VENV := .venv
+APP := src/ide/app.py
+REQ := requirements.txt
+ACTIVATE := . $(VENV)/bin/activate
+PYTHONPATH := src
+
+venv:
+	@test -d $(VENV) || $(PY) -m venv $(VENV)
+	@$(ACTIVATE) && pip install -U pip
+	@$(ACTIVATE) && pip install -r $(REQ)
+
+ide: venv
+	@$(ACTIVATE) && PYTHONPATH=$(PYTHONPATH) streamlit run $(APP)
