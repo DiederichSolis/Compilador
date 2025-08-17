@@ -1,4 +1,3 @@
-# src/semantic/types.py
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Dict
@@ -12,11 +11,14 @@ class Type:
     def __str__(self):
         return self.name
 
-class IntType(Type):  name = "Int"
-class BoolType(Type): name = "Bool"
+
+class IntType(Type):    name = "Int"
+class FloatType(Type):  name = "Float"   
+class BoolType(Type):   name = "Bool"
 class StringType(Type): name = "String"
-class NullType(Type): name = "Null"
-class VoidType(Type): name = "Void"
+class NullType(Type):   name = "Null"
+class VoidType(Type):   name = "Void"
+
 
 @dataclass(frozen=True)
 class ArrayType(Type):
@@ -39,6 +41,7 @@ class ClassType(Type):
 
 # Singleton instances
 INT    = IntType()
+FLOAT  = FloatType()   
 BOOL   = BoolType()
 STR    = StringType()
 NULL   = NullType()
