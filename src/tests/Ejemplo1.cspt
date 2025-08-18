@@ -1,0 +1,61 @@
+class Persona {
+    var nombre: string;
+    var edad: integer;
+    var color: string;
+
+    function init(nombre: string, edad: integer): void {
+        this.nombre = nombre;
+        this.edad = edad;
+        this.color = "rojo";
+    }
+
+    function saludar(): void {
+        print("Hola, mi nombre es " + this.nombre);
+    }
+
+    function incrementarEdad(anos: integer): void {
+        this.edad = this.edad + anos;
+        print("Ahora tengo " + this.edad + " años.");
+    }
+}
+
+class Estudiante : Persona {
+    var grado: integer;
+
+    function init(nombre: string, edad: integer, grado: integer): void {
+        // No hay 'super', así que inicializamos directamente
+        this.nombre = nombre;
+        this.edad = edad;
+        this.grado = grado;
+    }
+
+    function estudiar(): void {
+        print(this.nombre + " está estudiando en " + grado + " grado.");
+    }
+
+    function promedioNotas(nota1: integer, nota2: integer, nota3: integer): void {
+        var promedio = (nota1 + nota2 + nota3) / 3;
+        print("El promedio de " + this.nombre + " es " + promedio);
+    }
+}
+
+var nombre: string = "Erick";
+
+var juan: Estudiante = new Estudiante();
+juan.init(nombre, 20, 3);
+juan.saludar();    
+juan.estudiar();   
+juan.incrementarEdad(5);
+
+// Declara i fuera si quieres evitar ambigüedad en 'for'
+var i: integer = 1;
+for (; i <= 5; i = i + 1) {
+    if (i % 2 == 0) {
+        print(i + " es par");
+    } else {
+        print(i + " es impar");
+    }
+}
+
+var resultado: integer = (juan.edad * 2) + (5 - 3) / 2;
+print("Resultado de la expresión: " + resultado);

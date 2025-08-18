@@ -1,0 +1,15 @@
+// Factorial con recursividad en Compiscript
+
+function factorial(n: integer): integer {
+    if (n <= 1) {
+        return 1;
+    } else {
+        return n * factorial(n - 1);
+    }
+}
+
+function main(): void {
+    var numero: integer = 5;
+    var resultado: integer = factorial(numero);
+    print("El factorial de " + numero + " es: " + resultado);
+}

@@ -1,0 +1,15 @@
+function fibonacci(n: integer): integer {
+    if (n <= 1) {
+        return n;
+    } else {
+        let a: integer = fibonacci(n - 1);
+        let b: integer = fibonacci(n - 2);
+        return a + b;
+    }
+}
+
+function main(): void {
+    let numero: integer = 10;
+    let resultado: integer = fibonacci(numero);
+    print("El término " + numero + " de la serie de Fibonacci es: " + resultado);
+}

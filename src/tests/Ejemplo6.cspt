@@ -1,0 +1,34 @@
+class CajaRegistradora {
+    var impuesto: float;
+    var total: float;
+
+    function init(impuesto: float): void {
+        this.impuesto = impuesto;
+        this.total = 0.0;
+    }
+
+    function agregarProducto(precio: float): void {
+        this.total = this.total + precio;
+        print("Producto añadido con precio: " + precio);
+    }
+
+    function calcularTotalConImpuesto(): float {
+        let totalConImpuesto: float = this.total + (this.total * this.impuesto / 100.0);
+        print("El total con impuesto es: " + totalConImpuesto);
+        return totalConImpuesto;
+    }
+
+    function reiniciar(): void {
+        this.total = 0.0;
+        print("La caja registradora se ha reiniciado.");
+    }
+}
+
+function main(): void {
+    let caja: CajaRegistradora = new CajaRegistradora(12.0);
+    caja.agregarProducto(100.0);
+    caja.agregarProducto(50.0);
+    caja.agregarProducto(25.0);
+    caja.calcularTotalConImpuesto();
+    caja.reiniciar();
+}

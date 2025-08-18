@@ -1,0 +1,27 @@
+class Busqueda {
+    function busquedaBinaria(arreglo: integer[], izquierda: integer, derecha: integer, objetivo: integer): integer {
+        if (derecha >= izquierda) {
+            let medio: integer = (izquierda + derecha) / 2;
+
+            if (arreglo[medio] == objetivo) {
+                return medio;
+            }
+
+            if (arreglo[medio] > objetivo) {
+                // Caso en el que el elemento está en la mitad izquierda
+                return this.busquedaBinaria(arreglo, izquierda, medio - 1, objetivo);
+            }
+
+            // Caso en el que el elemento está en la mitad derecha
+            return this.busquedaBinaria(arreglo, medio + 1, derecha, objetivo);
+        }
+        return -1; // Elemento no encontrado
+    }
+}
+
+function main(): void {
+    let arr: integer[] = [1, 3, 5, 7, 9, 11, 13];
+    let buscador: Busqueda = new Busqueda();
+    let tamano: integer = 7;
+    let indice: integer = buscador.busquedaBinaria(arr, 0, tamano - 1, 7);
+    print("El elemento está en el índice: " + indice);
