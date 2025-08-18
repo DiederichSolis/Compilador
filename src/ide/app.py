@@ -1,6 +1,6 @@
 # app.py
 from __future__ import annotations
-import os
+import os, glob
 import sys
 from pathlib import Path
 import json
@@ -135,22 +135,24 @@ def inject_custom_css():
 
 # ---------- Utilidades de UI ----------
 @st.cache_data(show_spinner=False)
-def load_examples_from_program() -> dict[str, str]:
+def load_examples() -> dict[str, str]:
     """
-    Lee archivos de ejemplo desde la carpeta program/ y devuelve
-    { nombre_archivo: contenido }.
-    Acepta .cps/.txt/.code y también 'program.cps'.
+    Lee archivos de ejemplo desde program/ y src/tests/
+    Devuelve { nombre_archivo: contenido }
     """
     examples: dict[str, str] = {}
-    prog_dir = REPO_ROOT / "program"
-    if prog_dir.exists():
-        for p in sorted(prog_dir.iterdir()):
-            if not p.is_file():
-                continue
-            if p.suffix.lower() in {".cps", ".cspt", ".txt", ".code"} or p.name.lower() in {"program.cps", "program.cspt"}:
-                with contextlib.suppress(Exception):
-                    examples[p.name] = p.read_text(encoding="utf-8")
+    for folder in ["program", "src/tests"]:
+        dir_path = REPO_ROOT / folder
+        if dir_path.exists():
+            for p in sorted(dir_path.iterdir()):
+                if not p.is_file():
+                    continue
+                if p.suffix.lower() in {".cps", ".cspt", ".txt", ".code"}:
+                    with contextlib.suppress(Exception):
+                        # prefijo con carpeta para distinguir
+                        examples[f"{folder}/{p.name}"] = p.read_text(encoding="utf-8")
     return examples
+
 
 
 def trees_to_dot(tree, parser) -> str:
@@ -320,7 +322,7 @@ with st.sidebar:
             st.session_state["_force_compile"] = True
 
     # --- ejemplos de program/ ---
-    examples = load_examples_from_program()  # dict {nombre: contenido}
+    examples = load_examples() # dict {nombre: contenido}
 
     # Si hay archivo subido, lo añadimos como pseudo-ejemplo al inicio
     if "uploaded_buffer" in st.session_state:
