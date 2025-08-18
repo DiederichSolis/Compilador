@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 import json
 import contextlib
-
+from semantic.checker import analyze 
 import streamlit as st
 from streamlit.components.v1 import html
 
@@ -412,12 +412,21 @@ if compile_clicked or (auto_compile and st.session_state.code.strip()):
     try:
         res = build_from_text(st.session_state.code, entry_rule="program")
         st.session_state.last_result = res
+        st.session_state.semantic = None
+
         if res.ok():
             st.session_state.console += "✅ Parse correcto.\n"
-            # (si añadiste el mini-intérprete)
-            # from src.runtime import MiniInterpreter
-            # lines = MiniInterpreter().run(res.tree)
-            # if lines: st.session_state.console += "\n".join(map(str, lines)) + "\n"
+            # análisis semántico
+            try:
+                sem = analyze(res.tree)
+                st.session_state.semantic = sem
+                sem_errs = sem.get("errors", [])
+                if sem_errs:
+                    st.session_state.console += f"⚠️ Errores semánticos: {len(sem_errs)}\n"
+                else:
+                    st.session_state.console += "✅ Semántica correcta (sin errores).\n"
+            except Exception as ex:
+                st.session_state.console += f"💥 Excepción en análisis semántico: {ex}\n"
         else:
             st.session_state.console += f"❌ Errores de sintaxis: {len(res.errors)}\n"
     except Exception as ex:
@@ -449,28 +458,45 @@ tab1, tab2, tab3 = st.tabs(["Diagnósticos", "Árbol Sintáctico", "Tokens"])
 # Pestaña de diagnósticos
 with tab1:
     res: ParseResult | None = st.session_state.last_result
+    sem = st.session_state.get("semantic")
+
     if not res:
         st.info("Compila el código para ver los diagnósticos...")
     else:
-        if res.ok():
-            st.success("✅ El código se analizó correctamente sin errores.")
-        else:
-            st.error(f"❌ Se encontraron {len(res.errors)} errores de sintaxis:")
-            
-            # Tabla de errores mejorada
-            error_data = []
+        # construir tabla unificada: sintaxis + semántica
+        rows = []
+
+        # Sintaxis
+        if not res.ok():
             for idx, error in enumerate(res.errors, 1):
-                error_data.append({
+                rows.append({
+                    "Fase": "Sintaxis",
                     "#": idx,
-                "Línea": error.line,
-                "Columna": error.column,
-                "Token": error.offending,
-                "Mensaje": error.message,
-                "Esperado": error.expected or "-"
-            })
-            
+                    "Línea": error.line,
+                    "Columna": error.column,
+                    "Código": "-",
+                    "Mensaje": error.message,
+                    "Token": getattr(error, "offending", "-"),
+                })
+
+        # Semántica (solo si hubo parse OK y tenemos resultado)
+        if res.ok() and sem:
+            for i, e in enumerate(sem.get("errors", []), 1):
+                rows.append({
+                    "Fase": "Semántica",
+                    "#": i,
+                    "Línea": e.get("line", -1),
+                    "Columna": e.get("col", -1),
+                    "Código": e.get("code", "-"),
+                    "Mensaje": e.get("message", ""),
+                    "Token": "-",
+                })
+
+        if not rows:
+            st.success("✅ Sin errores de sintaxis ni semántica.")
+        else:
             st.dataframe(
-                error_data,
+                rows,
                 use_container_width=True,
                 column_config={
                     "#": st.column_config.NumberColumn(width="small"),
@@ -479,6 +505,11 @@ with tab1:
                 },
                 hide_index=True
             )
+
+        # (Opcional) ver Tabla de Símbolos
+        if res.ok() and sem and sem.get("symbols"):
+            with st.expander("📚 Tabla de símbolos"):
+                st.dataframe(sem["symbols"], use_container_width=True)
 
 # Pestaña de árbol sintáctico
 with tab2:
