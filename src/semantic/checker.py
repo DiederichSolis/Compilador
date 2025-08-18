@@ -389,11 +389,17 @@ class CompiscriptSemanticVisitor(CompiscriptVisitor):
             return self.visit(ctx.expression())
         return None
 
-    def visitLeftHandSide(self, ctx: CompiscriptParser.LeftHandSideContext):
-        cur_type: Optional[Type] = self.visit(ctx.primaryAtom())
-        cur_sym: Optional[Symbol] = getattr(cur_type, "__sym__", None)
+    def visitLeftHandSide(self, ctx):
+        cur_type = self.visit(ctx.primaryAtom())
+        cur_sym = None
+        from parsing.antlr.CompiscriptParser import CompiscriptParser as P
+        base = ctx.primaryAtom()
+        if isinstance(base, P.IdentifierExprContext):
+            name = base.Identifier().getText()
+            cur_sym = self.symtab.current.resolve(name)
+
         for sop in ctx.suffixOp() or []:
-            k = sop.start.text  # '(' , '[' , '.'
+            k = sop.start.text  # '(', '[', '.'
             if k == '(':
                 cur_type, cur_sym = self._apply_call(ctx, sop, cur_type, cur_sym)
             elif k == '[':
@@ -402,13 +408,10 @@ class CompiscriptSemanticVisitor(CompiscriptVisitor):
                 cur_type, cur_sym = self._apply_member(ctx, sop, cur_type)
         return cur_type
 
-    def _apply_call(self, parent_ctx, sop: CompiscriptParser.CallExprContext,
-                    cur_type: Optional[Type], cur_sym: Optional[Symbol] = None) -> Tuple[Optional[Type], Optional[Symbol]]:
-        args = []
-        if sop.arguments():
-            args = [self.visit(e) for e in (sop.arguments().expression() or [])]
+    def _apply_call(self, parent_ctx, sop, cur_type, cur_sym=None):
+        args = [self.visit(e) for e in (sop.arguments().expression() or [])] if sop.arguments() else []
 
-        fsym: Optional[FunctionSymbol] = getattr(sop, "_method_symbol", None)
+        fsym = getattr(sop, "_method_symbol", None)
         if fsym is not None:
             if len(args) != len(fsym.params):
                 self.error("E102", f"Argumentos incompatibles: esperaba {len(fsym.params)}, recibió {len(args)}", sop)
@@ -418,7 +421,19 @@ class CompiscriptSemanticVisitor(CompiscriptVisitor):
                         self.error("E102", f"Parametro {i+1}: esperaba {p.type}, recibió {at}", sop)
             return fsym.type, None
 
-        return cur_type, None
+        # funciones globales
+        if isinstance(cur_sym, FunctionSymbol):
+            if len(args) != len(cur_sym.params):
+                self.error("E102", f"Argumentos incompatibles: esperaba {len(cur_sym.params)}, recibió {len(args)}", sop)
+            else:
+                for i, (at, p) in enumerate(zip(args, cur_sym.params)):
+                    if at != p.type:
+                        self.error("E102", f"Parametro {i+1}: esperaba {p.type}, recibió {at}", sop)
+            return cur_sym.type, None
+
+        self.error("E301", "Llamada sobre un no-función", sop)
+        return None, None
+
 
     def _apply_index(self, parent_ctx, sop: CompiscriptParser.IndexExprContext,
                      cur_type: Optional[Type]) -> Tuple[Optional[Type], Optional[Symbol]]:
