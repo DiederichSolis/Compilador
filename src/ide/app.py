@@ -128,12 +128,55 @@ def inject_custom_css():
             background-color: var(--secondary) !important;
             color: var(--text) !important;
             border: 1px solid #1a1a1a !important;
+        }.stApp { background-color: var(--primary); color: var(--text); }
+
+        /* --- GUTTER: números de línea --- */
+        .ace_gutter {
+            background-color: var(--secondary) !important;
+            color: #8a8a8a !important;
+        }
+
+        /* --- CONTENEDOR DEL EDITOR CON ESTADOS --- */
+        .editor-wrap .ace_editor {
+            border: 1px solid #1a1a1a !important;
+            border-radius: 6px !important;
+        }
+        .editor-wrap.ok .ace_editor {
+            border-color: var(--success) !important;
+            box-shadow: 0 0 0 2px rgba(78,201,176,.25);
+        }
+        .editor-wrap.error .ace_editor {
+            border-color: var(--error) !important;
+            box-shadow: 0 0 0 2px rgba(241,76,76,.25);
+        }
+
+        /* --- MARCADOR DE LÍNEA CON ERROR --- */
+        .ace_error_line {
+            position: absolute;
+            background: rgba(241,76,76,.15);
         }
     </style>
     """
     st.markdown(custom_css, unsafe_allow_html=True)
 
 # ---------- Utilidades de UI ----------
+# ⬇️ AÑADE estos helpers
+def build_annotations(errors):
+    """Convierte tu lista de errores a anotaciones de Ace."""
+    anns = []
+    for e in (errors or []):
+        line = max((getattr(e, "line", 1) or 1) - 1, 0)
+        col  = max((getattr(e, "column", 1) or 1) - 1, 0)
+        msg  = getattr(e, "message", "Error")
+        anns.append({"row": line, "column": col, "text": msg, "type": "error"})
+    return anns
+
+def build_markers(errors):
+    """Resalta en rojo la línea completa donde hay error."""
+    rows = set(max((getattr(e, "line", 1) or 1) - 1, 0) for e in (errors or []))
+    return [{"startRow": r, "endRow": r, "startCol": 0, "endCol": 1_000_000,
+             "className": "ace_error_line", "type": "fullLine"} for r in rows]
+
 @st.cache_data(show_spinner=False)
 def load_examples() -> dict[str, str]:
     """
@@ -369,24 +412,43 @@ st.markdown("""
 
 ace_key = st.session_state.get("ace_key", 0)
 
+# Estado del último análisis
+_last = st.session_state.get("last_result")
+has_errors = bool(_last and getattr(_last, "errors", None))
+last_ok    = bool(_last and hasattr(_last, "ok") and _last.ok())
+
+editor_state_cls = "ok" if last_ok else ("error" if has_errors else "")
+anns  = build_annotations(getattr(_last, "errors", None)) if has_errors else []
+marks = build_markers(getattr(_last, "errors", None)) if has_errors else []
+
+# Envolver el editor para aplicar los estilos de borde (rojo/verde)
+st.markdown(f'<div class="editor-wrap {editor_state_cls}">', unsafe_allow_html=True)
+
 if HAS_ACE:
     code = st_ace(
-        value=st.session_state.code,
-        language="typescript",
+        value=st.session_state.get("code", ""),
+        language="typescript",          # o el que prefieras
         theme="monokai",
         height=350,
-        key=f"ace_{ace_key}",       # <- cambia cuando cargas archivo/ejemplo
-        auto_update=auto_compile,
-        show_gutter=True,
+        key=f"ace_{ace_key}",
+        auto_update=st.session_state.get("auto_compile", False),
+        show_gutter=True,               # ← NÚMEROS DE LÍNEA
+        show_print_margin=False,
         wrap=False,
         tab_size=2,
-        show_print_margin=False,
         keybinding="vscode",
+        annotations=anns,               # ← icono + tooltip en gutter
+        markers=marks,                  # ← resalta la línea completa
     )
 else:
-    code = st.text_area("Código fuente", value=st.session_state.code, height=300, key="code_area")
+    # Fallback sin números de línea (solo por si falta streamlit-ace)
+    code = st.text_area("Código fuente", value=st.session_state.get("code", ""), height=300, key="code_area")
 
+st.markdown('</div>', unsafe_allow_html=True)
+
+# Guarda el código editado
 st.session_state.code = code
+
 
 
 # --- Botones de acción (va DESPUÉS del editor, ANTES de compilar) ---
@@ -417,17 +479,22 @@ if compile_clicked or (auto_compile and st.session_state.code.strip()):
         if res.ok():
             st.session_state.console += "✅ Parse correcto.\n"
             # análisis semántico
+            st.session_state.last_result = res 
             try:
                 sem = analyze(res.tree)
                 st.session_state.semantic = sem
                 sem_errs = sem.get("errors", [])
                 if sem_errs:
+                    res.errors = sem_errs
                     st.session_state.console += f"⚠️ Errores semánticos: {len(sem_errs)}\n"
+                    st.session_state.last_result = res
                 else:
                     st.session_state.console += "✅ Semántica correcta (sin errores).\n"
             except Exception as ex:
+                st.session_state.last_result = res
                 st.session_state.console += f"💥 Excepción en análisis semántico: {ex}\n"
         else:
+            st.session_state.last_result = res
             st.session_state.console += f"❌ Errores de sintaxis: {len(res.errors)}\n"
     except Exception as ex:
         st.session_state.last_result = None
