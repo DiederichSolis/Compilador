@@ -499,6 +499,8 @@ if compile_clicked or (auto_compile and st.session_state.code.strip()):
     except Exception as ex:
         st.session_state.last_result = None
         st.session_state.console += f"💥 Excepción: {ex}\n"
+    st.session_state.ace_key += 1
+    st.rerun() 
 
 # Consola de salida
 st.markdown("""
