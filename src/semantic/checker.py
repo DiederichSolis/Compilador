@@ -353,6 +353,12 @@ class CompiscriptSemanticVisitor(CompiscriptVisitor):
     def visitFunctionDeclaration(self, ctx: CompiscriptParser.FunctionDeclarationContext):
         name = ctx.Identifier().getText()
         sym = self.symtab.current.resolve(name)
+
+        method_sym = None
+        if self._current_class is not None:
+            method_sym = self._lookup_method_symbol(self._current_class.type, name)
+
+
         if isinstance(sym, FunctionSymbol):
             prev_fn = self._current_function
             self._current_function = sym
@@ -365,7 +371,27 @@ class CompiscriptSemanticVisitor(CompiscriptVisitor):
             self.visit(ctx.block())
             self.symtab.pop()
             self._current_function = prev_fn
+            return None
+        if isinstance(method_sym, FunctionSymbol):
+            prev_fn = self._current_function
+            self._current_function = method_sym
+            self.symtab.push("FUNCTION", f"{self._current_class.name}.{name}")
+            # define parámetros del método en el scope
+            for p in method_sym.params:
+                try:
+                    self.symtab.current.define(p)
+                except KeyError:
+                    self.error("E001", f"Parámetro duplicado '{p.name}'", ctx)
+            # cuerpo
+            self.visit(ctx.block())
+            self.symtab.pop()
+            self._current_function = prev_fn
+            return None
+
+        
+        self.visit(ctx.block())
         return None
+
 
     def visitClassDeclaration(self, ctx: CompiscriptParser.ClassDeclarationContext):
         name = ctx.Identifier(0).getText()

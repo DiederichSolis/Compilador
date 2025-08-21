@@ -153,7 +153,28 @@ def load_examples() -> dict[str, str]:
                         examples[f"{folder}/{p.name}"] = p.read_text(encoding="utf-8")
     return examples
 
-
+def flatten_symbols_table(symdump):
+    """
+    symdump puede ser:
+      - dict: {"scope": "...", "entries": [ {...}, ... ]}
+      - list[dict]: varios scopes con el mismo formato
+    Devuelve lista de filas planas para tabla.
+    """
+    scopes = symdump if isinstance(symdump, list) else [symdump]
+    rows = []
+    for sc in scopes:
+        scope_name = sc.get("scope", "")
+        for e in sc.get("entries", []):
+            # e viene del checker: {"name":..., "kind":..., "type": ...}
+            # Aseguramos que type sea string
+            etype = e.get("type")
+            rows.append({
+                "scope": scope_name,
+                "name": e.get("name", ""),
+                "kind": e.get("kind", ""),
+                "type": str(etype),
+            })
+    return rows
 
 def trees_to_dot(tree, parser) -> str:
     """Convierte el parse tree en DOT para visualizar con st.graphviz_chart."""
@@ -508,8 +529,26 @@ with tab1:
 
         # (Opcional) ver Tabla de Símbolos
         if res.ok() and sem and sem.get("symbols"):
-            with st.expander("📚 Tabla de símbolos"):
-                st.dataframe(sem["symbols"], use_container_width=True)
+            with st.expander("📚 Tabla de símbolos", expanded=True):
+                flat = flatten_symbols_table(sem.get("symbols", []))
+                if flat:
+                    st.dataframe(
+                        flat,
+                        use_container_width=True,
+                        column_config={
+                            "scope": st.column_config.TextColumn("scope", width="large"),
+                            "name":  st.column_config.TextColumn("name", width="medium"),
+                            "kind":  st.column_config.TextColumn("kind", width="small"),
+                            "type":  st.column_config.TextColumn("type", width="small"),
+                        },
+                        hide_index=True,
+                    )
+
+                    # opcional: botón para ver el JSON crudo
+                    if st.toggle("Ver JSON crudo", value=False):
+                        st.json(sem.get("symbols", []))
+                else:
+                    st.info("No hay símbolos para mostrar.")
 
 # Pestaña de árbol sintáctico
 with tab2:
