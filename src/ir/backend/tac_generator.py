@@ -26,6 +26,7 @@ def global_(name: str) -> str: return f"@{name}"
 class TacGen(CompiscriptVisitor):
     prog: TacProgram = field(default_factory=TacProgram)
     cur: Optional[Emitter] = None
+    _func_stack: List[dict] = field(default_factory=list)
 
     # ===== funciones =====
     def visitProgram(self, ctx: CompiscriptParser.ProgramContext):
@@ -45,22 +46,47 @@ class TacGen(CompiscriptVisitor):
         fn = TacFunction(name=name, params=params, ret=ret)
         self.prog.add(fn)
 
+    
     def visitFunctionDeclaration(self, ctx: CompiscriptParser.FunctionDeclarationContext):
-        name = ctx.Identifier().getText()
-        # buscar la TacFunction creada
-        tfn = next(f for f in self.prog.functions if f.name == name)
-        prev = self.cur
-        self.cur = Emitter(tfn)
+            name = ctx.Identifier().getText()
+            # buscar la TacFunction creada
+            tfn = next(f for f in self.prog.functions if f.name == name)
+            prev = self.cur
+            self.cur = Emitter(tfn)
 
-        # cuerpo
-        self.visit(ctx.block())
+            # contexto de función (epílogo único)
+            ret_label = self.cur.L("Lret")
+            ret_temp  = self.cur.t()         # contenedor del valor de retorno
+            ret_type  = (tfn.ret or "Void").lower()
+            self._func_stack.append({
+                "name": name,
+                "ret_label": ret_label,
+                "ret_temp": ret_temp,
+                "has_return": False,
+                "ret_type": ret_type,
+            })
 
-        # si no hay ret explícito y es Void, añade ret
-        if tfn.ret == "Void" and (not tfn.code or tfn.code[-1].op != "ret"):
-            self.cur.ret()
+            # prólogo lógico (puedes ajustar frame size luego)
+            self.cur.label(f"f_{name}")
 
-        self.cur = prev
-        return None
+            # cuerpo
+            self.visit(ctx.block())
+
+            # epílogo único
+            fctx = self._func_stack[-1]
+            self.cur.label(fctx["ret_label"])
+            if fctx["ret_type"] == "void":
+                self.cur.ret()
+            else:
+                if not fctx["has_return"]:
+                    # política: si faltó return en función no-void, retorna #0
+                    self.cur.move("#0", fctx["ret_temp"])
+                self.cur.ret(fctx["ret_temp"])
+
+            self._func_stack.pop()
+            self.cur = prev
+            return None
+
 
     # ===== statements =====
     def visitPrintStatement(self, ctx: CompiscriptParser.PrintStatementContext):
@@ -70,6 +96,12 @@ class TacGen(CompiscriptVisitor):
 
     def visitVariableDeclaration(self, ctx: CompiscriptParser.VariableDeclarationContext):
         name = ctx.Identifier().getText()
+        # contar como local nombrada si estamos en una función
+        if self.cur is not None:
+            try:
+                self.cur.fn.locals_count += 1
+            except Exception:
+                pass
         if ctx.initializer():
             rhs = self.visit(ctx.initializer().expression())
             self.cur.move(rhs, local(name))
@@ -223,3 +255,21 @@ class TacGen(CompiscriptVisitor):
         dst = self.cur.t()
         self.cur.bin(op, a, b, dst)
         return dst
+
+    # returnStatement: 'return' expression? ';'
+    def visitReturnStatement(self, ctx: CompiscriptParser.ReturnStatementContext):
+        if not self._func_stack:
+            # return fuera de función: ignora o reporta; aquí solo emite 'ret' para no romper
+            self.cur.ret()
+            return None
+        fctx = self._func_stack[-1]
+        if ctx.expression():
+            v = self.visit(ctx.expression())
+            if fctx["ret_type"] != "void":
+                self.cur.move(v, fctx["ret_temp"])
+        else:
+            if fctx["ret_type"] != "void":
+                self.cur.move("#0", fctx["ret_temp"])
+        fctx["has_return"] = True
+        self.cur.goto(fctx["ret_label"])
+        return None
