@@ -1,28 +1,33 @@
 # src/cli.py
 import sys
+from pathlib import Path
 from antlr4 import FileStream, CommonTokenStream
 from parsing.antlr.CompiscriptLexer import CompiscriptLexer
 from parsing.antlr.CompiscriptParser import CompiscriptParser
 from semantic.checker import analyze
 
+from ir.backend.tac_generator import TacGen
+
 def parse_file(path: str):
-    """Construye el árbol sintáctico desde un archivo .cps"""
+    """Construye el árbol sintáctico desde un archivo (.cps / .cspt)."""
     input_stream = FileStream(path, encoding="utf-8")
     lexer = CompiscriptLexer(input_stream)
     tokens = CommonTokenStream(lexer)
     parser = CompiscriptParser(tokens)
-    tree = parser.program()   # regla inicial de tu gramática
-    return tree
+    tree = parser.program()
+    return tree, parser
 
 def main():
     if len(sys.argv) < 2:
-        print("Uso: python -m cli <archivo.cps>")
+        print("Uso: python -m cli <archivo.cps|cspt>")
         sys.exit(1)
 
     filename = sys.argv[1]
     print(f"Compilando {filename}...\n")
 
-    tree = parse_file(filename)
+    tree, parser = parse_file(filename)
+
+    # === SEMÁNTICA ===
     result = analyze(tree)
 
     print("=== Tabla de símbolos ===")
@@ -35,6 +40,25 @@ def main():
     else:
         for e in result["errors"]:
             print(f"{e['line']}:{e['col']} {e['code']}: {e['message']}")
+
+    # === TAC SOLO SI NO HAY ERRORES ===
+    has_syntax_errors = parser.getNumberOfSyntaxErrors() > 0
+    has_semantic_errors = len(result["errors"]) > 0
+
+    if not has_syntax_errors and not has_semantic_errors:
+        gen = TacGen()
+        gen.visit(tree)
+        tac_text = gen.prog.dump()
+
+        print("\n=== TAC ===")
+        print(tac_text)
+
+        out_path = str(Path(filename).with_suffix(Path(filename).suffix + ".tac"))
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(tac_text)
+        print(f"\n[TAC] Guardado en: {out_path}")
+    else:
+        print("\n[TAC] No generado por errores presentes.")
 
 if __name__ == "__main__":
     main()

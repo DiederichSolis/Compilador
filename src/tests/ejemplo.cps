@@ -1,45 +1,59 @@
-class Punto {
-    var x: float;
-    var y: float;
+// === Programa de smoke-test para TAC ===
 
-    function mover(dx: float, dy: float): void {
-        this.x = this.x + dx;
-        this.y = this.y + dy;
-    }
+const N: integer = 5;
+
+function cuadrado(x: integer): integer {
+  return x * x;
 }
 
-class Punto3D : Punto {
-    var z: float;
-
-    function mover(dx: float, dy: float, dz: float): void {
-        this.x = this.x + dx;
-        this.y = this.y + dy;
-        this.z = this.z + dz;
-    }
-}
-
-function distancia(a: Punto, b: Punto): float {
-    let dx: float = a.x - b.x;   // float - float
-    let dy: float = a.y - b.y;
-    return dx * dx + dy * dy;
+function max(a: integer, b: integer): integer {
+  if (a > b) {
+    return a;
+  } else {
+    return b;
+  }
 }
 
 function main(): void {
-    let p1: Punto = new Punto();
-    let p2: Punto = new Punto();
+  // ints
+  let i: integer = 0;
+  let acc: integer = 0;
 
-    p1.x = 3.0;   // float literal
-    p1.y = 4.0;
-    p2.x = 0.0;     // int literal (se promueve en operaciones)
-    p2.y = 0.0;
+  // array de enteros
+  let arr: integer[] = [1, 2, 3, 4, 5];
 
-    const pi: float = 3.14159;
+  // while + indexación + llamada a función
+  while (i < N) {
+    acc = acc + cuadrado(arr[i]);
+    i = i + 1;
+  }
 
-    let d: float = distancia(p1, p2);
+  // for con init; cond; step
+  for (let j: integer = 0; j < 3; j = j + 1) {
+    acc = acc + j;
+  }
 
-    // array homogéneo de float
-    let lista: float[] = [1.0, 2.0, 3.0];
-    foreach (n in lista) {
-        print(n);
-    }
+  // foreach (el iterador se declara implícitamente en tu checker)
+  foreach (x in arr) {
+    acc = acc + x;
+  }
+
+  // lógico + comparación
+  let ok: boolean = (acc > 0) && true;
+  if (ok) {
+    print("acc = " + acc);
+  } else {
+    print("acc = 0");
+  }
+
+  // floats simples (si tu TAC aún no soporta float, puedes comentar esto)
+  let f: float = 3.0;
+  let g: float = 2.0;
+  let h: float = f / g;   // no se usa, pero fuerza generación de expr float
+
+  // pequeña prueba de max()
+  let m: integer = max(10, 7);
+  acc = acc + m;
+
+  print("final = " + acc);
 }
