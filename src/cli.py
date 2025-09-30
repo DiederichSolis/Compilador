@@ -52,7 +52,7 @@ def main():
     if not has_syntax_errors and not has_semantic_errors:
         gen = TacGen()
         gen.visit(tree)
-        tac_text = gen.prog.dump()
+        tac_text = gen.prog.dump(debug_addrs=True)
 
         print("\n=== TAC ===")
         print(tac_text)

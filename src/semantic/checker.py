@@ -48,6 +48,25 @@ class CompiscriptSemanticVisitor(CompiscriptVisitor):
         self._current_function: Optional[FunctionSymbol] = None
         self._current_class: Optional[ClassSymbol] = None
         self.classes: Dict[str, ClassSymbol] = {}  # nombre -> ClassSymbol
+        self._install_builtins()
+    
+    def _install_builtins(self):
+        """Registra funciones built-in en el scope global (p.ej., len)."""
+        from .symbols import FunctionSymbol, ParamSymbol
+        a_any = ArrayType(NULL)  # Array<any> usando NULL como comodín
+        len_sym = FunctionSymbol(name="len", type=INT,
+                                 params=[ParamSymbol(name="a", type=a_any)])
+        try:
+            self.symtab.current.define(len_sym)
+        except KeyError:
+            pass  # si ya estaba, ignora
+
+    def _param_compatible(self, p_t: Optional[Type], a_t: Optional[Type]) -> bool:
+        """Compatibilidad de parámetros: Array<any> acepta cualquier Array<T>."""
+        if isinstance(p_t, ArrayType) and isinstance(a_t, ArrayType):
+            # Array<NULL> = comodín
+            return (p_t.elem is NULL) or (a_t.elem is NULL) or (p_t.elem == a_t.elem)
+        return p_t == a_t
 
     # -------------------- utilidades --------------------
 
@@ -300,10 +319,6 @@ class CompiscriptSemanticVisitor(CompiscriptVisitor):
         self.symtab.pop()
         return None
 
-    def visitBreakStatement(self, ctx: CompiscriptParser.BreakStatementContext):
-        if self._in_loop <= 0:
-            self.error("E201", "break fuera de un bucle", ctx)
-        return TERMINATED
 
     def visitContinueStatement(self, ctx: CompiscriptParser.ContinueStatementContext):
         if self._in_loop <= 0:
@@ -462,31 +477,50 @@ class CompiscriptSemanticVisitor(CompiscriptVisitor):
         return cur_type
 
     def _apply_call(self, parent_ctx, sop, cur_type, cur_sym=None):
+        """
+        Maneja la llamada en el encadenamiento LHS:  callee(args)
+        - Si viene marcada por _apply_member como método (sop._method_symbol), valida y retorna su tipo.
+        - Si 'cur_sym' es una FunctionSymbol global, valida y retorna su tipo.
+        - En otro caso, reporta error.
+        """
+        # recopila tipos de argumentos
         args = [self.visit(e) for e in (sop.arguments().expression() or [])] if sop.arguments() else []
 
+        # 1) ¿es un método de clase previamente resuelto en _apply_member?
         fsym = getattr(sop, "_method_symbol", None)
         if fsym is not None:
+            # aridad
             if len(args) != len(fsym.params):
-                self.error("E102", f"Argumentos incompatibles: esperaba {len(fsym.params)}, recibió {len(args)}", sop)
+                self.error("E102",
+                        f"Argumentos incompatibles: esperaba {len(fsym.params)}, recibió {len(args)}",
+                        sop)
             else:
+                # tipos (con regla de arrays relajada)
                 for i, (at, p) in enumerate(zip(args, fsym.params)):
-                    if at != p.type:
-                        self.error("E102", f"Parametro {i+1}: esperaba {p.type}, recibió {at}", sop)
+                    if not self._param_compatible(p.type, at):
+                        self.error("E102",
+                                f"Parametro {i+1}: esperaba {p.type}, recibió {at}",
+                                sop)
             return fsym.type, None
 
-        # funciones globales
+        # 2) ¿es una función global?
+        from .symbols import FunctionSymbol
         if isinstance(cur_sym, FunctionSymbol):
             if len(args) != len(cur_sym.params):
-                self.error("E102", f"Argumentos incompatibles: esperaba {len(cur_sym.params)}, recibió {len(args)}", sop)
+                self.error("E102",
+                        f"Argumentos incompatibles: esperaba {len(cur_sym.params)}, recibió {len(args)}",
+                        sop)
             else:
                 for i, (at, p) in enumerate(zip(args, cur_sym.params)):
-                    if at != p.type:
-                        self.error("E102", f"Parametro {i+1}: esperaba {p.type}, recibió {at}", sop)
+                    if not self._param_compatible(p.type, at):
+                        self.error("E102",
+                                f"Parametro {i+1}: esperaba {p.type}, recibió {at}",
+                                sop)
             return cur_sym.type, None
 
+        # 3) Si llegamos aquí, el 'callee' no es invocable
         self.error("E301", "Llamada sobre un no-función", sop)
         return None, None
-
 
     def _apply_index(self, parent_ctx, sop: CompiscriptParser.IndexExprContext,
                      cur_type: Optional[Type]) -> Tuple[Optional[Type], Optional[Symbol]]:
@@ -756,9 +790,36 @@ class _SymCollector(CompiscriptVisitor):
       - FUNC <name>: params y locals (var/const) con frameSize aproximado
     """
     def __init__(self):
-        self.scopes: list[_ScopeDump] = [_ScopeDump("GLOBAL __global__")]
-        self._func_scope: _ScopeDump | None = None
-        self._locals_count: int = 0
+        self.diag = Diagnostics()
+        self.symtab = SymbolTable()
+        self._in_loop = 0
+        self._current_function: Optional[FunctionSymbol] = None
+        self._current_class: Optional[ClassSymbol] = None
+        self.classes: Dict[str, ClassSymbol] = {}
+
+        self._install_builtins()
+
+    def _install_builtins(self):
+        from .symbols import FunctionSymbol, ParamSymbol
+        a_any = ArrayType(NULL)  # comodín del elemento
+        len_sym = FunctionSymbol(name="len", type=INT, params=[ParamSymbol(name="a", type=a_any)])
+        try:
+            self.symtab.current.define(len_sym)
+        except KeyError:
+            pass
+    
+    def _param_compatible(self, p_t, a_t) -> bool:
+        """
+        Compatibilidad de tipos para argumentos:
+        - Array<any> (representado como ArrayType(NULL)) acepta Array<T> para cualquier T.
+        - En otro caso, igualdad nominal.
+        """
+        from .types import ArrayType, NULL
+        if isinstance(p_t, ArrayType) and isinstance(a_t, ArrayType):
+            # "Array<any>" como comodín de elemento
+            return (p_t.elem is NULL) or (a_t.elem is NULL) or (p_t.elem == a_t.elem)
+        return p_t == a_t
+
 
     def _cur(self) -> _ScopeDump:
         # Si estamos dentro de una función, apuntamos a su scope; si no, a GLOBAL
@@ -834,6 +895,8 @@ class _SymCollector(CompiscriptVisitor):
         # Restaurar contexto (pero dejamos fscope en self.scopes)
         self._func_scope = prev
         return None
+
+
 
 def collect_symbols(tree) -> list[dict]:
     col = _SymCollector()

@@ -454,7 +454,7 @@ if compile_clicked or (auto_compile and st.session_state.code.strip()):
                     st.session_state.console += "✅ Semántica correcta (sin errores).\n"
                     gen = TacGen()
                     gen.visit(res.tree)
-                    st.session_state.tac_text = gen.prog.dump()
+                    st.session_state.tac_text = gen.prog.dump(debug_addrs=True)  # <- con direcciones
                     st.session_state.console += "🧱 TAC generado.\n"
             except Exception as ex:
                 st.session_state.console += f"💥 Excepción en análisis semántico: {ex}\n"
@@ -480,7 +480,7 @@ if gen_tac_clicked:
         try:
             gen = TacGen()
             gen.visit(res.tree)
-            tac_text = gen.prog.dump()
+            tac_text = gen.prog.dump(debug_addrs=True)
             st.session_state.tac_text = tac_text
             st.session_state.console += "🧱 TAC generado.\n"
         except Exception as ex:

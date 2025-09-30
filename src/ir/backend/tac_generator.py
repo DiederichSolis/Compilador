@@ -83,6 +83,8 @@ class TacGen(CompiscriptVisitor):
             self.cur.ret(fctx["ret_temp"])
 
         self._func_stack.pop()
+        tfn.finalize_frame()
+
         self.cur = prev
         return None
 
@@ -115,6 +117,7 @@ class TacGen(CompiscriptVisitor):
         if self.cur is not None:
             try:
                 self.cur.fn.locals_count += 1
+                self.cur.fn.alloc_local(name)
             except Exception:
                 pass
         if ctx.initializer():
@@ -186,31 +189,11 @@ class TacGen(CompiscriptVisitor):
 
         return None
 
-    def visitWhileStatement(self, ctx: CompiscriptParser.WhileStatementContext):
-        L_cond = self.cur.L("Lcond")
-        L_end  = self.cur.L("Lend")
-        self.cur.label(L_cond)
-        cond = self.visit(ctx.expression())
-        self.cur.if_false(cond, L_end)
-        self.visit(ctx.block())
-        self.cur.goto(L_cond)
-        self.cur.label(L_end)
-        return None
-
     # ===== expresiones =====
     def visitPrimaryExpr(self, ctx: CompiscriptParser.PrimaryExprContext):
         if ctx.literalExpr(): return self.visit(ctx.literalExpr())
         if ctx.leftHandSide(): return self.visit(ctx.leftHandSide())
         if ctx.expression(): return self.visit(ctx.expression())
-        return "#0"
-
-    def visitLiteralExpr(self, ctx: CompiscriptParser.LiteralExprContext):
-        if ctx.Literal():
-            txt = ctx.Literal().getText()
-            return lit(txt)
-        if ctx.getText() == "true":  return "#1"
-        if ctx.getText() == "false": return "#0"
-        if ctx.getText() == "null":  return "#null"
         return "#0"
 
    # LHS chaining: primaryAtom (suffixOp)*
@@ -388,17 +371,6 @@ class TacGen(CompiscriptVisitor):
         self.cur.label(L_end)
         return dst
     
-    def visitBreakStatement(self, ctx):
-        # break en loop o switch
-        if self._loop:
-            _, L_end = self._loop[-1]
-            self.cur.goto(L_end)
-            return None
-        if self._switch:
-            L_end = self._switch[-1]
-            self.cur.goto(L_end)
-            return None
-        return None
 
     def visitContinueStatement(self, ctx: CompiscriptParser.ContinueStatementContext):
         if not self._loop:
@@ -556,81 +528,48 @@ class TacGen(CompiscriptVisitor):
         if ctx.getText() == "null":  return "#null"
         return "#0"
     
-    def visitForeachStatement(self, ctx: CompiscriptParser.ForeachStatementContext):
-        """
-        foreach (item in expression) block
-        Desazúcar:
-        let item;                 ; declaramos local de bucle
-        ti = #0
-        tlen = <len(expr)>
-        Lcond:
-            tcond = ti < tlen
-            ifFalse tcond goto Lend
-            tval = aload arr, ti
-            item = tval
-            ... cuerpo ...
-            ti = ti + #1
-            goto Lcond
-        Lend:
-        """
-        # nombre del iterador
-        item_name = ctx.Identifier().getText()
+    def visitForeachStatement(self, ctx):
+        name = ctx.Identifier().getText()  # x
+        self.cur.fn.alloc_local(name)
+        try:
+            self.cur.fn.locals_count += 1
+        except Exception:
+            pass
 
-        # declara local de bucle (cuenta como local)
-        if self.cur is not None:
-            try:
-                self.cur.fn.locals_count += 1
-            except Exception:
-                pass
-        self.cur.move("#0", local(item_name))
-
-        # operando arreglo (puede ser literal o variable)
         arr = self.visit(ctx.expression())
 
-        # tamaño del arreglo:
-        # - si el arreglo se creó como literal en esta función y lo registramos, úsalo
-        # - de lo contrario, llama a builtin: len(arr)
-        tlen = None
-        if isinstance(arr, str) and arr in self._arr_len:
-            tlen = f"#{self._arr_len[arr]}"
-        else:
-            # builtin: len(arr) -> tlen
-            self.cur.param(arr)
-            tlen = self.cur.t()
-            self.cur.call("len", 1, tlen)
+        # len(arr)
+        self.cur.param(arr)
+        n = self.cur.t()
+        self.cur.call("len", 1, n)
 
-        # índice
-        tidx = self.cur.t()
-        self.cur.move("#0", tidx)
+        # i = 0
+        i = self.cur.t()
+        self.cur.move("#0", i)
 
-        # etiquetas
-        L_cond = self.cur.L("Lcond")
-        L_end  = self.cur.L("Lend")
-
-        # lazo
-        self.cur.label(L_cond)
+        Lcond = self.cur.L("Lcond")
+        Lend  = self.cur.L("Lend")
+        self.cur.label(Lcond)
         tcond = self.cur.t()
-        self.cur.bin("<", tidx, tlen, tcond)
-        self.cur.if_false(tcond, L_end)
+        self.cur.bin("<", i, n, tcond)
+        self.cur.if_false(tcond, Lend)
 
-        # cargar elemento y asignarlo a 'item'
-        tval = self.cur.t()
-        self.cur.aload(arr, tidx, tval)
-        self.cur.move(tval, local(item_name))
+        # x = aload arr, i
+        xi = self.cur.t()
+        self.cur.aload(arr, i, xi)
+        self.cur.move(xi, f"%{name}")   # <-- usa el local %x
 
         # cuerpo
-        self._loop.append((L_cond, L_end))
         self.visit(ctx.block())
-        self._loop.pop()
 
-        # i++
-        tincr = self.cur.t()
-        self.cur.bin("+", tidx, "#1", tincr)
-        self.cur.move(tincr, tidx)
-        self.cur.goto(L_cond)
-
-        self.cur.label(L_end)
+        # i = i + 1; goto Lcond
+        iplus = self.cur.t()
+        self.cur.bin("+", i, "#1", iplus)
+        self.cur.move(iplus, i)
+        self.cur.goto(Lcond)
+        self.cur.label(Lend)
         return None
+
     
     def visitBreakStatement(self, ctx: CompiscriptParser.BreakStatementContext):
         if self._break:  # dentro de switch
