@@ -26,3 +26,9 @@ build/
 .DS_Store
 .idea/
 .vscode/
+
+# Ignorar carpetas de cache de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
