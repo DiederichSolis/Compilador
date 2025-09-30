@@ -1,11 +1,15 @@
 # src/cli.py
+# --- add this at the very top ---
 import sys
 from pathlib import Path
+SRC_DIR = Path(__file__).resolve().parent  # .../Compilador/src
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+# --- then your existing imports ---
 from antlr4 import FileStream, CommonTokenStream
 from parsing.antlr.CompiscriptLexer import CompiscriptLexer
 from parsing.antlr.CompiscriptParser import CompiscriptParser
 from semantic.checker import analyze
-
 from ir.backend.tac_generator import TacGen
 
 def parse_file(path: str):
