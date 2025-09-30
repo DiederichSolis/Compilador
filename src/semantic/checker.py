@@ -44,6 +44,7 @@ class CompiscriptSemanticVisitor(CompiscriptVisitor):
         self.diag = Diagnostics()
         self.symtab = SymbolTable()
         self._in_loop = 0
+        self._in_switch = 0
         self._current_function: Optional[FunctionSymbol] = None
         self._current_class: Optional[ClassSymbol] = None
         self.classes: Dict[str, ClassSymbol] = {}  # nombre -> ClassSymbol
@@ -323,30 +324,56 @@ class CompiscriptSemanticVisitor(CompiscriptVisitor):
         return TERMINATED
 
     def visitSwitchStatement(self, ctx: CompiscriptParser.SwitchStatementContext):
+        """
+        switch (expr) {
+        case e1: S* 
+        case e2: S*
+        ...
+        default: S*
+        }
+        Reglas:
+        - El tipo de cada 'case' debe ser compatible con el de 'expr'.
+        - 'break' es válido dentro de switch (se marca como TERMINATED para el bloque del case).
+        - Reporta código inalcanzable después de return/break/continue.
+        """
+        # Tipo del scrutinee (expresión del switch)
         st = self.visit(ctx.expression())
-        for c in ctx.switchCase() or []:
+
+        # Permitir 'break' dentro del switch
+        self._in_switch += 1
+
+        # Visitar cases
+        for c in (ctx.switchCase() or []):
             ct = self.visit(c.expression())
+            # Chequeo de compatibilidad de tipos entre switch(expr) y cada case(expr)
             if st is not None and ct is not None and st != ct:
                 self.error("E302", f"Tipo de 'case' incompatible: {ct} con switch {st}", c)
+
             terminated = False
-            for s in c.statement() or []:
+            for s in (c.statement() or []):
                 if terminated:
                     self.error("E500", "Código inalcanzable después de return/break/continue", s)
                     continue
                 res = s.accept(self)
                 if res is TERMINATED:
                     terminated = True
+
+        # Visitar default (si existe)
         if ctx.defaultCase():
             dc = ctx.defaultCase()
             terminated = False
-            for s in dc.statement() or []:
+            for s in (dc.statement() or []):
                 if terminated:
                     self.error("E500", "Código inalcanzable después de return/break/continue", s)
                     continue
                 res = s.accept(self)
                 if res is TERMINATED:
                     terminated = True
+
+        # Salimos del contexto de switch
+        self._in_switch -= 1
         return None
+
 
     # -------------------- funciones & clases --------------------
 
@@ -648,6 +675,12 @@ class CompiscriptSemanticVisitor(CompiscriptVisitor):
         tt = self.visit(ctx.expression(0))
         _ = self.visit(ctx.expression(1))
         return tt
+    
+    def visitBreakStatement(self, ctx):
+        if self._in_loop <= 0 and self._in_switch <= 0:
+            self.error("E201", "break fuera de un bucle/switch", ctx)
+        return TERMINATED
+
 
     # -------------------- tipos --------------------
 
@@ -705,6 +738,108 @@ class CompiscriptSemanticVisitor(CompiscriptVisitor):
             cur = getattr(cur, "parent", None)
         return None
 
+# === Recolector de símbolos para la UI/IDE ===
+# === Recolector de símbolos para la UI/IDE (FIX) ===
+from dataclasses import dataclass, field
+from typing import Any
+
+@dataclass
+class _ScopeDump:
+    scope: str
+    meta: dict[str, Any] = field(default_factory=dict)
+    entries: list[dict[str, str]] = field(default_factory=list)
+
+class _SymCollector(CompiscriptVisitor):
+    """
+    Recolecta símbolos en formato amigable para la UI:
+      - GLOBAL: funciones y const/var globales
+      - FUNC <name>: params y locals (var/const) con frameSize aproximado
+    """
+    def __init__(self):
+        self.scopes: list[_ScopeDump] = [_ScopeDump("GLOBAL __global__")]
+        self._func_scope: _ScopeDump | None = None
+        self._locals_count: int = 0
+
+    def _cur(self) -> _ScopeDump:
+        # Si estamos dentro de una función, apuntamos a su scope; si no, a GLOBAL
+        return self._func_scope or self.scopes[0]
+
+    # --- helpers de tipos en formato 'IntType', 'BoolType', etc. ---
+    def _annot_str(self, tctx) -> str:
+        if not tctx:
+            return "AnyType"
+        txt = tctx.getText()
+        m = {
+            "integer": "IntType",
+            "boolean": "BoolType",
+            "string":  "StrType",
+            "void":    "VoidType",
+            "float":   "FloatType",
+        }
+        return m.get(txt, f"{txt[0].upper() + txt[1:]}Type")
+
+    def visitProgram(self, ctx: CompiscriptParser.ProgramContext):
+        for st in ctx.statement() or []:
+            self.visit(st)
+        return None
+
+    def visitConstantDeclaration(self, ctx: CompiscriptParser.ConstantDeclarationContext):
+        name = ctx.Identifier().getText()
+        typ  = self._annot_str(ctx.typeAnnotation().type_() if ctx.typeAnnotation() else None)
+        self._cur().entries.append({"name": name, "kind": "const", "type": typ})
+        if self._func_scope is not None:
+            self._locals_count += 1
+        return None
+
+    def visitVariableDeclaration(self, ctx: CompiscriptParser.VariableDeclarationContext):
+        name = ctx.Identifier().getText()
+        typ  = self._annot_str(ctx.typeAnnotation().type_() if ctx.typeAnnotation() else None)
+        self._cur().entries.append({"name": name, "kind": "var", "type": typ})
+        if self._func_scope is not None:
+            self._locals_count += 1
+        return None
+
+    def visitFunctionDeclaration(self, ctx: CompiscriptParser.FunctionDeclarationContext):
+        fname = ctx.Identifier().getText()
+        # ⚠️ Si no hay anotación de retorno, considera VoidType
+        rtyp  = self._annot_str(ctx.type_()) if ctx.type_() else "VoidType"
+
+        # Registra la función en GLOBAL
+        self.scopes[0].entries.append({"name": fname, "kind": "func", "type": rtyp})
+
+        # Crea y fija el scope de función (NO se quita de self.scopes al terminar)
+        fscope = _ScopeDump(
+            scope=f"FUNC {fname}",
+            meta={"ret": rtyp, "labelEntry": f"f_{fname}", "labelExit": "Lret*"},
+            entries=[]
+        )
+        self.scopes.append(fscope)
+        prev = self._func_scope
+        self._func_scope = fscope
+        self._locals_count = 0
+
+        # Params
+        if ctx.parameters():
+            for p in ctx.parameters().parameter():
+                pname = p.Identifier().getText()
+                ptyp  = self._annot_str(p.type_() if p.type_() else None)
+                self._cur().entries.append({"name": pname, "kind": "param", "type": ptyp})
+
+        # Cuerpo: aquí se colectan locals/const locales
+        self.visit(ctx.block())
+
+        # Meta de frame (aprox = #locals declaradas)
+        self._cur().meta["frameSize"] = self._locals_count
+
+        # Restaurar contexto (pero dejamos fscope en self.scopes)
+        self._func_scope = prev
+        return None
+
+def collect_symbols(tree) -> list[dict]:
+    col = _SymCollector()
+    col.visit(tree)
+    return [{"scope": s.scope, "meta": s.meta, "entries": s.entries} for s in col.scopes]
+
 # ---------------------------------------------------------------------
 # Facade
 # ---------------------------------------------------------------------
@@ -712,4 +847,12 @@ class CompiscriptSemanticVisitor(CompiscriptVisitor):
 def analyze(tree) -> dict:
     checker = CompiscriptSemanticVisitor()
     checker.visit(tree)
-    return {"symbols": checker.symtab.dump(), "errors": checker.diag.to_list()}
+    # Tabla para la UI (const/var/func por scope)
+    try:
+        symbols_for_ui = collect_symbols(tree)
+    except Exception:
+        symbols_for_ui = checker.symtab.dump()  # fallback si algo raro pasa
+    return {
+        "symbols": symbols_for_ui,
+        "errors": checker.diag.to_list(),
+    }
