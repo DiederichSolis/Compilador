@@ -1,7 +1,28 @@
 ##
 
-/env 
+# Entornos
+.venv/
+venv/
+.env/
+.env.*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Pytest
+.pytest_cache/
+
+# Otros comunes
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+coverage.xml
+dist/
+build/
+*.egg-info/
+.DS_Store
+.idea/
+.vscode/
