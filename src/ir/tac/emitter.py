@@ -44,3 +44,10 @@ class Emitter:
     def aload(self, arr: str, idx: str, dst: str): self.emit(ALoad(arr, idx, dst))
     def astore(self, arr: str, idx: str, val: str): self.emit(AStore(arr, idx, val))
     def print(self, arg: str): self.emit(Print(arg))
+    def last_is_terminal(self) -> bool:
+        if not self.fn.code:
+            return False
+        from .instructions import Goto, Ret
+        last = self.fn.code[-1]
+        return isinstance(last, (Goto, Ret))
+
