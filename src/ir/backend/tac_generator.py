@@ -33,11 +33,46 @@ class TacGen(CompiscriptVisitor):
     _switch: List[str] = field(default_factory=list)
     # ===== funciones =====
     def visitProgram(self, ctx: CompiscriptParser.ProgramContext):
+        """
+        PASES:
+        1) Declarar firmas de funciones (para poder llamarlas desde top-level).
+        2) Crear función implícita 'main' y generar TODO el código ejecutable de nivel superior ahí
+            (let/var/const, asignaciones, prints, if/while/for/foreach/switch/try, etc.).
+            Se SALTAN classDeclaration y functionDeclaration.
+        3) Generar cuerpos de funciones declaradas (visitFunctionDeclaration).
+        """
+        # ----- Pase 1: sólo firmas de funciones -----
         for st in ctx.statement() or []:
             if st.functionDeclaration():
                 self._declare_function(st.functionDeclaration())
-        # generar cuerpo
-        return self.visitChildren(ctx)
+
+        # ----- Pase 2: generar "main" implícito para el código de nivel superior -----
+        main_fn = TacFunction(name="main", params=[], ret="void")
+        self.prog.add(main_fn)
+
+        prev = self.cur
+        self.cur = Emitter(main_fn)
+        self.cur.label("f_main")
+
+        # Visitar SOLO los statements ejecutables a nivel superior
+        for st in ctx.statement() or []:
+            if st.functionDeclaration() or st.classDeclaration():
+                continue  # no son ejecutables directamente
+            self.visit(st)
+
+        # Retorno del main
+        self.cur.ret()
+
+        # Restaurar emisor anterior
+        self.cur = prev
+
+        # ----- Pase 3: generar cuerpos de funciones -----
+        for st in ctx.statement() or []:
+            if st.functionDeclaration():
+                self.visit(st.functionDeclaration())
+
+        return None
+
 
     def _declare_function(self, fctx: CompiscriptParser.FunctionDeclarationContext):
         name = fctx.Identifier().getText()
@@ -113,20 +148,25 @@ class TacGen(CompiscriptVisitor):
 
     def visitVariableDeclaration(self, ctx: CompiscriptParser.VariableDeclarationContext):
         name = ctx.Identifier().getText()
-        # contar como local nombrada si estamos en una función
+
+        # Si estamos dentro de función, alocar como local nombrado
         if self.cur is not None:
             try:
                 self.cur.fn.locals_count += 1
                 self.cur.fn.alloc_local(name)
             except Exception:
                 pass
-        if ctx.initializer():
-            rhs = self.visit(ctx.initializer().expression())
-            self.cur.move(rhs, local(name))
-        else:
-            # sin init: inicializa con #0
-            self.cur.move("#0", local(name))
+            if ctx.initializer():
+                rhs = self.visit(ctx.initializer().expression())
+                self.cur.move(rhs, local(name))
+            else:
+                self.cur.move("#0", local(name))
+            return None
+
+        # Si por alguna razón se visita fuera de función (no debería, tenemos main implícito),
+        # lo ignoramos silenciosamente o podrías moverlo a un mapa de @globales en self.prog.
         return None
+
 
     def visitAssignment(self, ctx: CompiscriptParser.AssignmentContext):
         exprs = ctx.expression()
