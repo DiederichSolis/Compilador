@@ -1,5 +1,5 @@
 # Runtime de ANTLR necesario para CompiscriptLexer/Parser
-antlr4-python3-runtime==4.13.1
+antlr4-python3-runtime==4.13.2
 
 streamlit==1.36.0
 

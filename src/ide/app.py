@@ -5,9 +5,6 @@ import sys
 from pathlib import Path
 import json
 import contextlib
-from semantic.checker import analyze 
-import streamlit as st
-from streamlit.components.v1 import html
 
 # Rutas correctas
 SRC_DIR   = Path(__file__).resolve().parents[1]   # .../Compilador/src
@@ -16,6 +13,10 @@ REPO_ROOT = SRC_DIR.parent                        # .../Compilador
 # Hacer importable el paquete bajo src/
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
+from ir.backend.tac_generator import TacGen
+from semantic.checker import analyze 
+import streamlit as st
+from streamlit.components.v1 import html
 
 # Importar el builder de tu parser 
 from parsing.antlr import build_from_text, ParseResult
@@ -421,6 +422,7 @@ download_code   = colC.download_button(
     mime="text/plain",
     use_container_width=True,
 )
+gen_tac_clicked = colD.button("🧱 Generar TAC", use_container_width=True)
 
 if clear_console:
     st.session_state.console = ""
@@ -434,6 +436,7 @@ if compile_clicked or (auto_compile and st.session_state.code.strip()):
         res = build_from_text(st.session_state.code, entry_rule="program")
         st.session_state.last_result = res
         st.session_state.semantic = None
+        st.session_state.tac_text = None  # resetear TAC en cada compilación
 
         if res.ok():
             st.session_state.console += "✅ Parse correcto.\n"
@@ -442,17 +445,46 @@ if compile_clicked or (auto_compile and st.session_state.code.strip()):
                 sem = analyze(res.tree)
                 st.session_state.semantic = sem
                 sem_errs = sem.get("errors", [])
+
                 if sem_errs:
                     st.session_state.console += f"⚠️ Errores semánticos: {len(sem_errs)}\n"
+                    st.session_state.console += "⛔ TAC no generado por errores semánticos.\n"
+                    st.session_state.tac_text = None
                 else:
                     st.session_state.console += "✅ Semántica correcta (sin errores).\n"
+                    gen = TacGen()
+                    gen.visit(res.tree)
+                    st.session_state.tac_text = gen.prog.dump()
+                    st.session_state.console += "🧱 TAC generado.\n"
             except Exception as ex:
                 st.session_state.console += f"💥 Excepción en análisis semántico: {ex}\n"
+                st.session_state.tac_text = None
         else:
             st.session_state.console += f"❌ Errores de sintaxis: {len(res.errors)}\n"
+            st.session_state.console += "⛔ TAC no generado por errores de sintaxis.\n"
+            st.session_state.tac_text = None
     except Exception as ex:
         st.session_state.last_result = None
+        st.session_state.tac_text = None
         st.session_state.console += f"💥 Excepción: {ex}\n"
+
+if gen_tac_clicked:
+    res = st.session_state.get("last_result")
+    sem = st.session_state.get("semantic")
+
+    if not res or not res.ok():
+        st.warning("Primero corrige los errores de sintaxis.")
+    elif not sem or sem.get("errors"):
+        st.warning("Primero corrige los errores semánticos.")
+    else:
+        try:
+            gen = TacGen()
+            gen.visit(res.tree)
+            tac_text = gen.prog.dump()
+            st.session_state.tac_text = tac_text
+            st.session_state.console += "🧱 TAC generado.\n"
+        except Exception as ex:
+            st.error(f"Error al generar TAC: {ex}")
 
 # Consola de salida
 st.markdown("""
@@ -474,7 +506,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-tab1, tab2, tab3 = st.tabs(["Diagnósticos", "Árbol Sintáctico", "Tokens"])
+tab1, tab2, tab3, tab4 = st.tabs(["Diagnósticos", "Árbol Sintáctico", "Tokens", "Intermedio (TAC)"])
 
 # Pestaña de diagnósticos
 with tab1:
@@ -608,3 +640,11 @@ with tab3:
             )
         else:
             st.info("Activa 'Mostrar tokens' en la configuración para ver la lista de tokens.")
+with tab4:
+    tac = st.session_state.get("tac_text")
+    if tac:
+        st.code(tac, language="text")
+        st.download_button("Descargar .tac", tac.encode("utf-8"),
+                           file_name="program.cps.tac", use_container_width=True)
+    else:
+        st.info("Compila un programa válido para ver el TAC.")
