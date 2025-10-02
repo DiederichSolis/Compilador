@@ -31,45 +31,46 @@ class TacGen(CompiscriptVisitor):
     _arr_len: Dict[str, int] = field(default_factory=dict)
     _break: List[str] = field(default_factory=list) 
     _switch: List[str] = field(default_factory=list)
+    _current_class: Optional[str] = None 
+    _class_offsets: Dict[str, Dict[str, int]] = field(default_factory=dict)  # para offsets de campos
+
     # ===== funciones =====
     def visitProgram(self, ctx: CompiscriptParser.ProgramContext):
-        """
-        PASES:
-        1) Declarar firmas de funciones (para poder llamarlas desde top-level).
-        2) Crear función implícita 'main' y generar TODO el código ejecutable de nivel superior ahí
-            (let/var/const, asignaciones, prints, if/while/for/foreach/switch/try, etc.).
-            Se SALTAN classDeclaration y functionDeclaration.
-        3) Generar cuerpos de funciones declaradas (visitFunctionDeclaration).
-        """
-        # ----- Pase 1: sólo firmas de funciones -----
+        # Pase 1: firmas de funciones y métodos
         for st in ctx.statement() or []:
             if st.functionDeclaration():
                 self._declare_function(st.functionDeclaration())
+            if st.classDeclaration():
+                self.visitClassDeclaration(st.classDeclaration())  # declara métodos
 
-        # ----- Pase 2: generar "main" implícito para el código de nivel superior -----
+        # Pase 2: main implícito
         main_fn = TacFunction(name="main", params=[], ret="void")
         self.prog.add(main_fn)
-
         prev = self.cur
         self.cur = Emitter(main_fn)
         self.cur.label("f_main")
-
-        # Visitar SOLO los statements ejecutables a nivel superior
         for st in ctx.statement() or []:
             if st.functionDeclaration() or st.classDeclaration():
-                continue  # no son ejecutables directamente
+                continue
             self.visit(st)
-
-        # Retorno del main
         self.cur.ret()
-
-        # Restaurar emisor anterior
         self.cur = prev
 
-        # ----- Pase 3: generar cuerpos de funciones -----
+        # Pase 3: cuerpos de funciones libres
         for st in ctx.statement() or []:
             if st.functionDeclaration():
                 self.visit(st.functionDeclaration())
+
+        # Pase 3b: cuerpos de métodos de clases
+        for st in ctx.statement() or []:
+            if st.classDeclaration():
+                class_ctx = st.classDeclaration()
+                class_name = class_ctx.Identifier(0).getText()
+                self._current_class = class_name
+                for member in class_ctx.classMember():
+                    if member.functionDeclaration():
+                        self.visit(member.functionDeclaration())
+                self._current_class = None
 
         return None
 
@@ -86,7 +87,12 @@ class TacGen(CompiscriptVisitor):
 
     
     def visitFunctionDeclaration(self, ctx: CompiscriptParser.FunctionDeclarationContext):
+        """
+        Normal y también para métodos de clase (ya renombrados en _declare_method).
+        """
         name = ctx.Identifier().getText()
+        if self._current_class:
+            name = f"{self._current_class}__{name}"
         tfn = next(f for f in self.prog.functions if f.name == name)
         prev = self.cur
         self.cur = Emitter(tfn)
@@ -100,14 +106,9 @@ class TacGen(CompiscriptVisitor):
         })
 
         self.cur.label(f"f_{name}")
-
-        # cuerpo
         self.visit(ctx.block())
 
-        # 🔧 limpia gotos triviales antes de armar el epílogo
-        tfn.code = self._peephole(tfn.code)
-
-        # epílogo único
+        # epílogo
         fctx = self._func_stack[-1]
         self.cur.label(fctx["ret_label"])
         if fctx["ret_type"] == "void":
@@ -119,9 +120,10 @@ class TacGen(CompiscriptVisitor):
 
         self._func_stack.pop()
         tfn.finalize_frame()
-
         self.cur = prev
         return None
+
+
 
     def _peephole(self, code):
         out = []
@@ -268,11 +270,24 @@ class TacGen(CompiscriptVisitor):
             elif k == '.':
                 # acceso a propiedad: obj.prop
                 fld = sop.Identifier().getText()
+
+                # 🔧 caso especial: this.prop dentro de un método de clase
+                if base == "%this":
+                    class_name = self._infer_class_of_this()
+                    if class_name and fld in self._class_offsets.get(class_name, {}):
+                        offset = self._class_offsets[class_name][fld]
+                        tmp = self.cur.t()
+                        # acceso directo a memoria: *(this+offset)
+                        self.cur.load(f"*(@this + {offset})", tmp)
+                        base = tmp
+                        continue  # no hagas getf
+                # fallback: comportamiento genérico (objetos dinámicos)
                 tmp = self.cur.t()
                 self.cur.getf(base, fld, tmp)
                 base = tmp
 
         return base
+
 
 
     def visitIdentifierExpr(self, ctx: CompiscriptParser.IdentifierExprContext):
@@ -525,12 +540,18 @@ class TacGen(CompiscriptVisitor):
         return val
 
     def visitPropertyAssignExpr(self, ctx: CompiscriptParser.PropertyAssignExprContext):
-        # assignmentExpr: lhs=leftHandSide '.' Identifier '=' assignmentExpr # PropertyAssignExpr
         obj = self.visit(ctx.leftHandSide())
         field = ctx.Identifier().getText()
         val = self.visit(ctx.assignmentExpr())
-        self.cur.setf(obj, field, val)
+        # traducir this.campo a *(this+offset)
+        if obj == "%this":
+            class_name = self._infer_class_of_this()
+            offset = self._class_offsets[class_name][field]
+            self.cur.store(val, f"*(@this + {offset})")
+        else:
+            self.cur.setf(obj, field, val)
         return obj
+
     def visitArrayLiteral(self, ctx: CompiscriptParser.ArrayLiteralContext):
         """
         Genera:
@@ -683,11 +704,60 @@ class TacGen(CompiscriptVisitor):
 
         self.cur.label(L_end)
         return None
+    
+
+    def visitClassDeclaration(self, ctx: CompiscriptParser.ClassDeclarationContext):
+        """
+        Convierte cada método de la clase en una función global estilo:
+        ClassName__method(this, params...)
+        También registra offsets de campos.
+        """
+        class_name = ctx.Identifier(0).getText()
+        fields = []
+        methods = []
+
+        # miembros de la clase
+        for member in ctx.classMember():
+            if member.variableDeclaration():
+                fname = member.variableDeclaration().Identifier().getText()
+                fields.append(fname)
+            elif member.functionDeclaration():
+                methods.append(member.functionDeclaration())
+
+        # asignar offsets para los campos
+        offsets = {f: i*4 for i, f in enumerate(fields)}  # 4 bytes c/u
+        self._class_offsets[class_name] = offsets
+
+        # generar funciones para cada método
+        for m in methods:
+            self._declare_method(class_name, m)
+
+        return None
+
+    def _declare_method(self, class_name, fctx):
+        """
+        Declara una función estilo Class__method(this, params...)
+        """
+        name = fctx.Identifier().getText()
+        params = ["this"]  # siempre incluye this
+        if fctx.parameters():
+            for p in fctx.parameters().parameter():
+                params.append(p.Identifier().getText())
+        ret = fctx.type_().getText() if fctx.type_() else "Void"
+        fn_name = f"{class_name}__{name}"
+        fn = TacFunction(name=fn_name, params=params, ret=ret)
+        self.prog.add(fn)
+        return fn
 
 
 
-
-
+    def _infer_class_of_this(self):
+        if not self._func_stack:
+            return None
+        fname = self._func_stack[-1]["name"]
+        if "__" in fname:
+            return fname.split("__")[0]
+        return None
 
 
 

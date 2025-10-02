@@ -1,59 +1,83 @@
-// === Programa de smoke-test para TAC ===
-
-const N: integer = 5;
-
-function cuadrado(x: integer): integer {
-  return x * x;
+// --- Utilidad global ---
+function toString(x: integer): string {
+  return "";
 }
 
-function max(a: integer, b: integer): integer {
-  if (a > b) {
-    return a;
+// --- Clase base ---
+class Persona {
+  let nombre: string = "";
+  let edad: integer = 5;
+  let color: string= "";
+
+  function constructor(nombre: string, edad: integer) {
+    this.nombre = nombre;
+    this.edad = edad;
+    this.color = "rojo";
+  }
+
+  function saludar(): string {
+    return "Hola, mi nombre es " + this.nombre;
+  }
+
+  function incrementarEdad(anos: integer): string {
+    this.edad = this.edad + anos;
+    return "Ahora tengo " + toString(this.edad) + " años.";
+  }
+}
+
+// --- Clase derivada ---
+class Estudiante : Persona {
+  let grado: integer = 5;
+
+  // function constructor(nombre: string, edad: integer, grado: integer) {
+  function constructor(nombre: string, edad: integer) {
+    // No hay 'super': inicializamos campos heredados directamente
+    this.nombre = nombre;
+    this.edad = edad;
+    this.color = "rojo";
+    // this.grado = grado;
+  }
+
+  function estudiar(): string {
+    return this.nombre + " está estudiando en " + toString(this.grado) + " grado.";
+  }
+
+  function promedioNotas(nota1: integer, nota2: integer, nota3: integer): integer {
+    let promedio: integer = (nota1 + nota2 + nota3) / 3; // división entera
+    return promedio;
+  }
+}
+
+// --- Programa principal ---
+let log: string = "";
+
+let nombre: string = "Erick";
+// let juan: Estudiante = new Estudiante(nombre, 20, 3);
+let juan: Estudiante = new Estudiante(nombre, 20);
+
+// "Imprimir" = concatenar al log con saltos de línea
+log = log + juan.saludar() + "\n";
+log = log + juan.estudiar() + "\n";
+log = log + juan.incrementarEdad(5) + "\n";
+
+// Bucle (uso de while por compatibilidad)
+let i: integer = 1;
+while (i <= 5) {
+  if ((i % 2) == 0) {
+    log = log + toString(i) + " es par\n";
   } else {
-    return b;
+    log = log + toString(i) + " es impar\n";
   }
+  i = i + 1;
 }
 
-function main(): void {
-  // ints
-  let i: integer = 0;
-  let acc: integer = 0;
+// Expresión aritmética (entera)
+let resultado: integer = (juan.edad * 2) + ((5 - 3) / 2);
+log = log + "Resultado de la expresión: " + toString(resultado) + "\n";
 
-  // array de enteros
-  let arr: integer[] = [1, 2, 3, 4, 5];
+// Ejemplo de promedio (entero)
+let prom: integer = 0;
+prom = juan.promedioNotas(90, 85, 95);
+log = log + "Promedio (entero): " + toString(prom) + "\n";
 
-  // while + indexación + llamada a función
-  while (i < N) {
-    acc = acc + cuadrado(arr[i]);
-    i = i + 1;
-  }
-
-  // for con init; cond; step
-  for (let j: integer = 0; j < 3; j = j + 1) {
-    acc = acc + j;
-  }
-
-  // foreach (el iterador se declara implícitamente en tu checker)
-  foreach (x in arr) {
-    acc = acc + x;
-  }
-
-  // lógico + comparación
-  let ok: boolean = (acc > 0) && true;
-  if (ok) {
-    print("acc = " + acc);
-  } else {
-    print("acc = 0");
-  }
-
-  // floats simples (si tu TAC aún no soporta float, puedes comentar esto)
-  let f: float = 3.0;
-  let g: float = 2.0;
-  let h: float = f / g;   // no se usa, pero fuerza generación de expr float
-
-  // pequeña prueba de max()
-  let m: integer = max(10, 7);
-  acc = acc + m;
-
-  print("final = " + acc);
-}
+// Nota: 'log' contiene todas las salidas.
