@@ -1,0 +1,178 @@
+.func toString(x) : string
+  .locals 0
+  .addr x = FP+8  ; param
+f_toString:
+  t0 = #""
+  goto Lret0
+Lret0:
+  ret t0
+.endfunc
+
+.func Persona__constructor(this, nombre, edad) : Void
+  .locals 0
+  .addr this = FP+8  ; param
+  .addr nombre = FP+12  ; param
+  .addr edad = FP+16  ; param
+f_Persona__constructor:
+  setf None, "nombre", %nombre
+  setf None, "edad", %edad
+  setf None, "color", #"rojo"
+Lret0:
+  ret
+.endfunc
+
+.func Persona__saludar(this) : string
+  .locals 0
+  .addr this = FP+8  ; param
+f_Persona__saludar:
+  t1 = getf None, "nombre"
+  t2 = #"Hola, mi nombre es " + t1
+  t0 = t2
+  goto Lret0
+Lret0:
+  ret t0
+.endfunc
+
+.func Persona__incrementarEdad(this, anos) : string
+  .locals 0
+  .addr this = FP+8  ; param
+  .addr anos = FP+12  ; param
+f_Persona__incrementarEdad:
+  t1 = getf None, "edad"
+  t2 = t1 + %anos
+  setf None, "edad", t2
+  t3 = getf None, "edad"
+  param t3
+  call toString, 1 -> t4
+  t5 = #"Ahora tengo " + t4
+  t6 = t5 + #" años."
+  t0 = t6
+  goto Lret0
+Lret0:
+  ret t0
+.endfunc
+
+.func Estudiante__constructor(this, nombre, edad, grado) : Void
+  .locals 0
+  .addr this = FP+8  ; param
+  .addr nombre = FP+12  ; param
+  .addr edad = FP+16  ; param
+  .addr grado = FP+20  ; param
+f_Estudiante__constructor:
+  setf None, "nombre", %nombre
+  setf None, "edad", %edad
+  setf None, "color", #"rojo"
+  setf None, "grado", %grado
+Lret0:
+  ret
+.endfunc
+
+.func Estudiante__estudiar(this) : string
+  .locals 0
+  .addr this = FP+8  ; param
+f_Estudiante__estudiar:
+  t1 = getf None, "nombre"
+  t2 = t1 + #" está estudiando en "
+  t3 = getf None, "grado"
+  param t3
+  call toString, 1 -> t4
+  t5 = t2 + t4
+  t6 = t5 + #" grado."
+  t0 = t6
+  goto Lret0
+Lret0:
+  ret t0
+.endfunc
+
+.func Estudiante__promedioNotas(this, nota1, nota2, nota3) : integer
+  .locals 1
+  .addr this = FP+8  ; param
+  .addr nota1 = FP+12  ; param
+  .addr nota2 = FP+16  ; param
+  .addr nota3 = FP+20  ; param
+  .addr promedio = FP-4  ; local
+f_Estudiante__promedioNotas:
+  t1 = %nota1 + %nota2
+  t2 = t1 + %nota3
+  t3 = t2 / #3
+  %promedio = t3
+  t0 = %promedio
+  goto Lret0
+Lret0:
+  ret t0
+.endfunc
+
+.func main() : void
+  .locals 6
+f_main:
+  %log = #""
+  %nombre = #"Erick"
+  t0 = new Estudiante
+  %juan = t0
+  t1 = getf %juan, "saludar"
+  call t1, 0 -> t2
+  t3 = %log + t2
+  t4 = t3 + #"\n"
+  %log = t4
+  t5 = getf %juan, "estudiar"
+  call t5, 0 -> t6
+  t7 = %log + t6
+  t8 = t7 + #"\n"
+  %log = t8
+  t9 = getf %juan, "incrementarEdad"
+  param #5
+  call t9, 1 -> t10
+  t11 = %log + t10
+  t12 = t11 + #"\n"
+  %log = t12
+  %i = #1
+Lcond0:
+  t13 = %i <= #5
+  ifFalse t13 goto Lend1
+  t14 = %i % #2
+  t15 = t14 == #0
+  ifFalse t15 goto Lelse2
+  param %i
+  call toString, 1 -> t16
+  t17 = %log + t16
+  t18 = t17 + #" es par\n"
+  %log = t18
+  goto Lend3
+Lelse2:
+  param %i
+  call toString, 1 -> t19
+  t20 = %log + t19
+  t21 = t20 + #" es impar\n"
+  %log = t21
+Lend3:
+  t22 = %i + #1
+  %i = t22
+  goto Lcond0
+Lend1:
+  t23 = getf %juan, "edad"
+  t24 = t23 * #2
+  t25 = #5 - #3
+  t26 = t25 / #2
+  t27 = t24 + t26
+  %resultado = t27
+  t28 = %log + #"Resultado de la expresión: "
+  param %resultado
+  call toString, 1 -> t29
+  t30 = t28 + t29
+  t31 = t30 + #"\n"
+  %log = t31
+  %prom = #0
+  t32 = getf %juan, "promedioNotas"
+  param #90
+  param #85
+  param #95
+  call t32, 3 -> t33
+  %prom = t33
+  t34 = %log + #"Promedio (entero): "
+  param %prom
+  call toString, 1 -> t35
+  t36 = t34 + t35
+  t37 = t36 + #"\n"
+  %log = t37
+  ret
+.endfunc
