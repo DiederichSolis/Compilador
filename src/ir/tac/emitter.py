@@ -1,4 +1,4 @@
-# src/tac/emitter.py
+# emitter.py
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List
@@ -10,15 +10,15 @@ class Emitter:
     fn: TacFunction
     temp_counter: int = 0
     label_counter: int = 0
-
+    _global_label_counter: int = 0
     def t(self) -> str:
         v = f"t{self.temp_counter}"
         self.temp_counter += 1
         return v
 
-    def L(self, base: str="L") -> str:
-        v = f"{base}{self.label_counter}"
-        self.label_counter += 1
+    def L(self, base: str = "L") -> str:
+        v = f"{base}{Emitter._global_label_counter}"
+        Emitter._global_label_counter += 1
         return v
 
     def emit(self, instr: Instr) -> Instr:
@@ -34,20 +34,36 @@ class Emitter:
     def if_goto(self, cond: str, label: str): self.emit(IfGoto(cond, label, True))
     def if_false(self, cond: str, label: str): self.emit(IfGoto(cond, label, False))
     def param(self, arg: str): self.emit(Param(arg))
-    def call(self, f: str, argc: int, dst: str|None): self.emit(Call(f, argc, dst))
+
+    
+    def call(self, f: str, argc: int, dst: str | None = None):
+        self.emit(Call(f, argc, dst))
+        return dst
+    
+
     def ret(self, v: str|None=None): self.emit(Ret(v))
     # objetos/arrays/IO
-    def new(self, cls: str, dst: str): self.emit(NewObj(cls, dst))
-    def getf(self, obj: str, field: str, dst: str): self.emit(GetF(obj, field, dst))
-    def setf(self, obj: str, field: str, val: str): self.emit(SetF(obj, field, val))
-    def newarr(self, elem_t: str, size: str, dst: str): self.emit(NewArr(elem_t, size, dst))
-    def aload(self, arr: str, idx: str, dst: str): self.emit(ALoad(arr, idx, dst))
-    def astore(self, arr: str, idx: str, val: str): self.emit(AStore(arr, idx, val))
-    def print(self, arg: str): self.emit(Print(arg))
+    def new(self, cls: str, dst: str): 
+        self.emit(NewObj(cls, dst))
+
+    def getf(self, obj: str, offset: int, dst: str):
+        # offset = desplazamiento en bytes dentro del objeto
+        self.emit(GetF(obj, offset, dst))
+
+    def setf(self, obj: str, offset: int, val: str):
+        self.emit(SetF(obj, offset, val))
+
+    def newarr(self, elem_t: str, size: str, dst: str): 
+        self.emit(NewArr(elem_t, size, dst))
+    def aload(self, arr: str, idx: str, dst: str): 
+        self.emit(ALoad(arr, idx, dst))
+    def astore(self, arr: str, idx: str, val: str): 
+        self.emit(AStore(arr, idx, val))
+    def print(self, arg: str): 
+        self.emit(Print(arg))
     def last_is_terminal(self) -> bool:
         if not self.fn.code:
             return False
         from .instructions import Goto, Ret
         last = self.fn.code[-1]
         return isinstance(last, (Goto, Ret))
-

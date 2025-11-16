@@ -1,3 +1,4 @@
+#program.py
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -44,5 +45,31 @@ class TacProgram:
     def add(self, fn: TacFunction):
         self.functions.append(fn)
 
-    def dump(self, debug_addrs: bool = False) -> str:
-        return "\n\n".join(f.to_string(debug_addrs=debug_addrs) for f in self.functions)
+    def get_optimized(self):
+        """
+        Retorna una copia optimizada del programa TAC
+        """
+        from .opt.optimizer import TacOptimizer
+        optimizer = TacOptimizer()
+        import copy
+        program = copy.deepcopy(self)
+        return optimizer.optimize(program)
+
+    def dump(self, debug_addrs: bool = False, optimize: bool = True) -> str:
+        """
+        Genera el código TAC como string
+        
+        Args:
+            debug_addrs: Si incluir información de direcciones de memoria
+            optimize: Si aplicar optimizaciones antes de generar el código
+        """
+        program = self
+        if optimize:
+            from .opt.optimizer import TacOptimizer
+            optimizer = TacOptimizer()
+            # Crear una copia para no modificar el original
+            import copy
+            program = copy.deepcopy(self)
+            program = optimizer.optimize(program)
+        
+        return "\n\n".join(f.to_string(debug_addrs=debug_addrs) for f in program.functions)
