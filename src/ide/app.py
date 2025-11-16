@@ -267,6 +267,8 @@ if "last_result" not in st.session_state:
     st.session_state.last_result = None
 if "console" not in st.session_state:
     st.session_state.console = ""
+if "mips_code" not in st.session_state:
+    st.session_state.mips_code = ""
 
 # ---------- Layout ----------
 st.set_page_config(
@@ -455,6 +457,7 @@ if compile_clicked or (auto_compile and st.session_state.code.strip()):
                     gen = TacGen()
                     gen.visit(res.tree)
                     st.session_state.tac_text = gen.prog.dump(debug_addrs=True)  # <- con direcciones
+                    st.session_state.tac_program = gen.prog  # <- guardar para MIPS
                     st.session_state.console += "🧱 TAC generado.\n"
             except Exception as ex:
                 st.session_state.console += f"💥 Excepción en análisis semántico: {ex}\n"
@@ -482,6 +485,7 @@ if gen_tac_clicked:
             gen.visit(res.tree)
             tac_text = gen.prog.dump(debug_addrs=True)
             st.session_state.tac_text = tac_text
+            st.session_state.tac_program = gen.prog  # <- guardar para MIPS
             st.session_state.console += "🧱 TAC generado.\n"
         except Exception as ex:
             st.error(f"Error al generar TAC: {ex}")
@@ -506,7 +510,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-tab1, tab2, tab3, tab4 = st.tabs(["Diagnósticos", "Árbol Sintáctico", "Tokens", "Intermedio (TAC)"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Diagnósticos", "Árbol Sintáctico", "Tokens", "Intermedio (TAC)", "💻 MIPS"])
 
 # Pestaña de diagnósticos
 with tab1:
@@ -648,3 +652,53 @@ with tab4:
                            file_name="program.cps.tac", use_container_width=True)
     else:
         st.info("Compila un programa válido para ver el TAC.")
+# Pestaña MIPS
+with tab5:
+    st.subheader("💻 Código MIPS")
+
+    col1, col2 = st.columns([1, 1])
+    gen_mips_clicked = col1.button("⚡ Generar MIPS", use_container_width=True)
+    clear_mips      = col2.button("🧹 Limpiar MIPS", use_container_width=True)
+
+    if clear_mips:
+        st.session_state.mips_code = ""
+
+    if gen_mips_clicked:
+        tac_program = st.session_state.get("tac_program")
+
+        if not tac_program:
+            st.warning("⚠️ Primero genera un TAC válido (compila sin errores).")
+        else:
+            try:
+                # 👉 usar nuestro backend MIPS basado en TU TAC
+                from ir.backend.mips import generate_mips
+
+                mips_code = generate_mips(tac_program)
+                st.session_state.mips_code = mips_code
+
+                st.success("✅ Código MIPS generado correctamente.")
+            except Exception as e:
+                import traceback
+                st.error(f"❌ Error generando MIPS: {e}")
+                with st.expander("Ver detalle del error"):
+                    st.text(traceback.format_exc())
+
+    if st.session_state.mips_code:
+        st.code(st.session_state.mips_code, language="mips")
+
+        st.download_button(
+            "📥 Descargar .s",
+            st.session_state.mips_code.encode("utf-8"),
+            file_name="program.cps.s",
+            mime="text/plain",
+            use_container_width=True
+        )
+
+        # stats sencillas
+        lines = len(st.session_state.mips_code.splitlines())
+        size_bytes = len(st.session_state.mips_code.encode("utf-8"))
+        colA, colB = st.columns(2)
+        colA.metric("Líneas de código MIPS", lines)
+        colB.metric("Tamaño", f"{size_bytes} bytes")
+    else:
+        st.info("ℹ️ Compila tu programa y luego haz clic en 'Generar MIPS' para ver el ensamblador.")
