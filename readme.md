@@ -509,7 +509,7 @@ print(p.distance());  // 25
 
 ### 🎥 Demostración
 
-- **Video de ejecución MIPS en MARS:** [🔗 Ver video](#) *(Próximamente)*
+- **Video de ejecución MIPS en MARS:** [🔗 Ver video](https://www.youtube.com/watch?v=MxyiSILFzOw) *(Próximamente)*
 - **Repositorio GitHub:** [🔗 github.com/DiederichSolis/Compilador](https://github.com/DiederichSolis/Compilador)
 
 ### 🛠️ Herramientas Recomendadas
